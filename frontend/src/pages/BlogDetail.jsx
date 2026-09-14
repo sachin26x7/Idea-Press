@@ -6,6 +6,7 @@ import { AuthContext } from '../context/AuthContext';
 import CommentSection from '../components/CommentSection';
 import { Button } from '../components/ui/button';
 import { Heart, MessageCircle, ArrowLeft } from 'lucide-react';
+import { getMediaUrl } from '../lib/media';
 
 export default function BlogDetail() {
   const { slug } = useParams();
@@ -102,7 +103,7 @@ export default function BlogDetail() {
         <motion.img
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          src={blog.coverImage}
+          src={getMediaUrl(blog.coverImage)}
           alt={blog.title}
           className="w-full h-96 object-cover rounded-xl mb-8 shadow-lg"
         />
@@ -131,7 +132,7 @@ export default function BlogDetail() {
             <div className="flex items-center gap-4">
               <Link to={`/profile/${blog.author?._id}`} className="flex items-center gap-4 group/author">
                 {blog.author?.avatar ? (
-                  <img src={blog.author.avatar} alt={blog.author.name} className="w-12 h-12 rounded-full object-cover" />
+                  <img src={getMediaUrl(blog.author.avatar)} alt={blog.author.name} className="w-12 h-12 rounded-full object-cover" />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-on-dark font-bold text-lg">
                     {blog.author?.name?.charAt(0) || 'A'}

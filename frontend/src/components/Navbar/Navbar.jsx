@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { AuthContext } from '../../context/AuthContext';
 import { Button } from '../ui/button';
 import { GraduationCap, Sparkles, LogOut, PenTool, LayoutDashboard, BookOpen, Globe, UserCircle } from 'lucide-react';
+import { getMediaUrl } from '../../lib/media';
 
 export default function Navbar() {
   const contextValue = useContext(AuthContext);
@@ -62,7 +63,7 @@ export default function Navbar() {
               </span>
               <Link to="/profile">
                 <Button variant="outline" className="border-accent/50 text-accent hover:bg-accent/10 hover:text-accent gap-2">
-                  {user.avatar ? <img src={user.avatar} alt="" className="w-5 h-5 rounded-full object-cover" /> : <UserCircle size={16} />}
+                  {user.avatar ? <img src={getMediaUrl(user.avatar)} alt="" className="w-5 h-5 rounded-full object-cover" /> : <UserCircle size={16} />}
                   Profile
                 </Button>
               </Link>

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 import { Trash2, Heart } from 'lucide-react';
+import { getMediaUrl } from '../lib/media';
 
 export default function CommentSection({ blogId, likes = [] }) {
   const contextValue = useContext(AuthContext);
@@ -195,7 +196,7 @@ export default function CommentSection({ blogId, likes = [] }) {
                 <div className="flex items-center gap-3">
                   <Link to={`/profile/${comment.author?._id}`} className="flex items-center gap-3 group/author">
                     {comment.author?.avatar ? (
-                      <img src={comment.author.avatar} alt={comment.author.name} className="w-8 h-8 rounded-full object-cover" />
+                      <img src={getMediaUrl(comment.author.avatar)} alt={comment.author.name} className="w-8 h-8 rounded-full object-cover" />
                     ) : (
                       <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-on-dark text-sm font-bold">
                         {comment.author?.name?.charAt(0) || 'U'}

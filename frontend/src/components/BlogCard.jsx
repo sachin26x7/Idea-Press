@@ -5,6 +5,7 @@ import { Trash2, Heart, MessageCircle, Share2 } from 'lucide-react';
 import { useContext, useState } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import axios from 'axios';
+import { getMediaUrl } from '../lib/media';
 
 export default function BlogCard({ blog, onDelete }) {
   const contextValue = useContext(AuthContext);
@@ -101,7 +102,7 @@ export default function BlogCard({ blog, onDelete }) {
         {blog.coverImage ? (
           <div className="editorial-blog-image">
             <img 
-              src={blog.coverImage} 
+              src={getMediaUrl(blog.coverImage)} 
               alt={blog.title} 
               className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-in-out"
             />
@@ -131,7 +132,7 @@ export default function BlogCard({ blog, onDelete }) {
         <CardFooter className="editorial-blog-footer flex justify-between items-center mt-auto">
           <Link to={`/profile/${blog.author?._id}`} className="flex items-center gap-3 group/author">
             {blog.author?.avatar ? (
-              <img src={blog.author.avatar} alt={blog.author.name} className="w-9 h-9 rounded-full object-cover" />
+              <img src={getMediaUrl(blog.author.avatar)} alt={blog.author.name} className="w-9 h-9 rounded-full object-cover" />
             ) : (
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-on-dark font-bold shadow-inner">
                 {blog.author?.name?.charAt(0) || 'A'}

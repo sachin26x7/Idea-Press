@@ -5,6 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Camera, MapPin, BriefcaseBusiness, Globe, Save, Sparkles } from 'lucide-react';
+import { getMediaUrl } from '../lib/media';
 
 const emptyProfile = { name: '', bio: '', work: '', location: '', website: '' };
 
@@ -34,7 +35,7 @@ export default function Profile() {
           location: profile.location || '',
           website: profile.website || '',
         });
-        setPreview(profile.avatar || '');
+        setPreview(getMediaUrl(profile.avatar || ''));
         setInterests(profile.interests || []);
       } catch {
         setForm({
@@ -44,7 +45,7 @@ export default function Profile() {
           location: user.location || '',
           website: user.website || '',
         });
-        setPreview(user.avatar || '');
+        setPreview(getMediaUrl(user.avatar || ''));
         setInterests(user.interests || []);
       }
     };

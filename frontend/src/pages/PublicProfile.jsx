@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { MapPin, BriefcaseBusiness, Globe, FileText } from 'lucide-react';
 import BlogCard from '../components/BlogCard';
+import { getMediaUrl } from '../lib/media';
 
 export default function PublicProfile() {
   const { id } = useParams();
@@ -35,7 +36,7 @@ export default function PublicProfile() {
       <div className="relative overflow-hidden rounded-[var(--radius)] border border-border bg-card p-6 md:p-10 mb-10 shadow-[var(--shadow-card)]">
         <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
           {profile.avatar ? (
-            <img src={profile.avatar} alt={profile.name} className="w-32 h-32 rounded-full object-cover border-4 border-primary/40 shrink-0" />
+            <img src={getMediaUrl(profile.avatar)} alt={profile.name} className="w-32 h-32 rounded-full object-cover border-4 border-primary/40 shrink-0" />
           ) : (
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-5xl font-black text-on-dark shrink-0">{profile.name?.charAt(0)}</div>
           )}
