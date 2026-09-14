@@ -54,7 +54,7 @@ function AppLayout() {
   return (
     <div className="min-h-screen bg-background font-sans antialiased text-foreground selection:bg-primary selection:text-primary-foreground overflow-x-hidden">
       {showNavbar && <Navbar />}
-      <main className={`container mx-auto px-4 ${showNavbar ? 'pt-20' : 'pt-0'} pb-0`}>
+      <main className={`container mx-auto w-full min-w-0 px-3 sm:px-4 ${showNavbar ? 'pt-20' : 'pt-0'} pb-0`}>
         <Routes>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/landing" element={<Landing />} />
