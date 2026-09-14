@@ -32,6 +32,7 @@ const configuredOrigins = [
   process.env.CLIENT_URL,
   ...(process.env.CORS_ORIGINS || '').split(','),
   'https://idea-press-blog.netlify.app',
+  'https://press-blog.netlify.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',

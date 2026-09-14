@@ -37,7 +37,7 @@ export default function Navbar() {
       initial={{ y: -100 }}
       animate={{ y: 0 }}
       transition={{ type: "spring", stiffness: 100, damping: 20 }}
-      className={`fixed top-0 left-0 right-0 w-full h-16 glass z-50 flex items-center border-b border-primary/20 shadow-[0_4px_30px_rgba(var(--primary),0.1)] overflow-hidden transition-transform duration-500 ease-out ${headerVisible ? 'translate-y-0' : '-translate-y-full'} ${isPublicLanding ? 'landing-nav' : ''}`}
+      className={`fixed top-0 left-0 right-0 w-full h-16 glass z-50 flex items-center border-b border-primary/20 shadow-[0_4px_30px_rgba(var(--primary),0.1)] overflow-visible transition-transform duration-500 ease-out ${headerVisible ? 'translate-y-0' : '-translate-y-full'} ${isPublicLanding ? 'landing-nav' : ''}`}
     >
       <div className="absolute  inset-0 bg-gradient-to-r from-primary/5 via-transparent to-accent/5 pointer-events-none"></div>
       <div className="container mx-auto px-3 sm:px-4 flex justify-between items-center relative z-10">
