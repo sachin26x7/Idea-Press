@@ -28,20 +28,22 @@ app.use(helmet({
 }));
 
 // 🔐 Enhanced CORS Configuration
+const configuredOrigins = [
+  process.env.CLIENT_URL,
+  ...(process.env.CORS_ORIGINS || '').split(','),
+  'https://idea-press-blog.netlify.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000'
+].map((origin) => origin?.trim()).filter(Boolean);
+
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      process.env.CLIENT_URL || 'http://localhost:5173',
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:3000'
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || configuredOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error(`Origin not allowed by CORS: ${origin}`));
     }
   },
   credentials: true,
