@@ -107,7 +107,7 @@ export const registerUser = async (req, res) => {
         }
       }
       return res.status(503).json({
-        message: 'Verification email could not be sent, so no account was created. Please try again later.',
+        message: `Verification email could not be sent, so no account was created. ${error.message}`,
       });
     }
 

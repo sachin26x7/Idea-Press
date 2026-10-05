@@ -38,7 +38,7 @@ export const sendEmail = async (options) => {
     });
 
     if (!response.ok) {
-      const details = await response.text();
+      const details = (await response.text()).slice(0, 400);
       throw new Error(`Email provider rejected the request (HTTP ${response.status}): ${details}`);
     }
 
