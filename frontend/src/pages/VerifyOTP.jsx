@@ -87,7 +87,7 @@ export default function VerifyOTP() {
             <CardTitle className="text-2xl font-bold text-foreground">Verify Email</CardTitle>
             <CardDescription className="text-sm font-medium">
               {emailSent === false 
-                ? 'OTP email could not be sent. You can skip verification below.'
+                ? 'OTP email could not be sent. Use Resend OTP to try again.'
                 : `Enter the 6-digit OTP sent to ${email}`
               }
             </CardDescription>

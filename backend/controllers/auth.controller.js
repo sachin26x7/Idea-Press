@@ -106,27 +106,25 @@ export const registerUser = async (req, res) => {
     }
 
     if (user) {
-      // Send OTP via email
-      let emailSent = false;
       const message = `Your OTP for Upskill verification is: ${otp}\nThis OTP is valid for 10 minutes.`;
-      
+
       try {
         await sendEmail({
           email: user.email,
           subject: 'Upskill - Account Verification OTP',
           message,
         });
-        emailSent = true;
       } catch (error) {
-        console.error('Email sending failed:', error.message);
+        console.error('Registration OTP email failed:', error.message);
+        return res.status(503).json({
+          message: 'Your account was created, but the verification email could not be sent. Please try registering again shortly.',
+        });
       }
 
       res.status(201).json({
-        message: emailSent
-          ? 'Registration successful. Please verify your email with the OTP sent.'
-          : 'Registration successful. OTP email could not be sent. You can skip verification.',
+        message: 'Registration successful. Please verify your email with the OTP sent.',
         email: user.email,
-        emailSent
+        emailSent: true
       });
     } else {
       res.status(400).json({ message: 'Invalid user data' });

@@ -1,23 +1,47 @@
-import nodemailer from 'nodemailer';
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const EMAIL_TIMEOUT_MS = 8000;
 
 export const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
 
-  const message = {
-    from: `${process.env.SMTP_USER}`,
-    to: options.email,
-    subject: options.subject,
-    text: options.message,
-    html: options.html,
-  };
+  if (!apiKey || !from) {
+    throw new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM.');
+  }
 
-  const info = await transporter.sendMail(message);
-  console.log('Message sent: %s', info.messageId);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [options.email],
+        subject: options.subject,
+        text: options.message,
+        html: options.html,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`Email provider rejected the request (HTTP ${response.status}): ${details}`);
+    }
+
+    const result = await response.json();
+    console.log('Email accepted by provider:', result.id);
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Email provider timed out after ${EMAIL_TIMEOUT_MS / 1000} seconds`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 };
