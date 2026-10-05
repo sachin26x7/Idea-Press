@@ -1,82 +1,110 @@
-const RESEND_API_URL = 'https://api.resend.com/emails';
-const REQUEST_TIMEOUT_MS = 8000;
-const DEFAULT_FROM = 'IdeaPress <onboarding@resend.dev>';
+import nodemailer from 'nodemailer';
 
-const parseSender = (value) => {
-  const match = value.trim().match(/^(.*?)\s*<([^<>]+)>$/);
-  const address = (match ? match[2] : value).trim();
-  const domain = address.split('@')[1]?.toLowerCase();
+const SMTP_CONNECTION_TIMEOUT_MS = 8000;
+const SMTP_SOCKET_TIMEOUT_MS = 15000;
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
-    throw new Error('EMAIL_FROM must be a valid email address, optionally with a display name.');
-  }
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    throw new Error('EMAIL_FROM must use onboarding@resend.dev or a domain verified with Resend.');
-  }
+let transporter;
+let senderAddress;
 
-  return match ? `${match[1].trim()} <${address}>` : address;
+const requiredEmailVariables = [
+  'EMAIL_HOST',
+  'EMAIL_PORT',
+  'EMAIL_USER',
+  'EMAIL_PASS',
+  'EMAIL_FROM',
+];
+
+const maskEmail = (email) => {
+  const [name, domain] = email.split('@');
+  return `${name.slice(0, 1)}***@${domain}`;
+};
+
+const describeSmtpError = (error) => {
+  const code = error?.code || 'SMTP_ERROR';
+  const responseCode = error?.responseCode ? ` (${error.responseCode})` : '';
+  return `${code}${responseCode}`;
 };
 
 export const validateEmailConfig = () => {
-  if (!process.env.RESEND_API_KEY?.trim()) {
-    throw new Error('Missing required environment variable: RESEND_API_KEY');
+  const missing = requiredEmailVariables.filter((name) => !process.env[name]?.trim());
+  if (missing.length) {
+    throw new Error(`Missing required email configuration: ${missing.map((name) => `${name} is missing`).join(', ')}`);
   }
-  if (!process.env.JWT_SECRET && !process.env.OTP_HASH_SECRET) {
-    throw new Error('Missing JWT_SECRET or OTP_HASH_SECRET required to protect OTPs.');
+
+  const port = Number(process.env.EMAIL_PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('EMAIL_PORT must be a valid TCP port number.');
   }
-  parseSender(process.env.EMAIL_FROM?.trim() || DEFAULT_FROM);
-  console.log('[Email] Provider selected: resend');
-  console.log('[Email] Configuration: valid');
+
+  const emailUser = process.env.EMAIL_USER.trim();
+  const from = process.env.EMAIL_FROM.trim();
+  const fromMatch = from.match(/^(.*?)\s*<([^<>]+)>$/);
+  const address = (fromMatch ? fromMatch[2] : from).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailUser)) {
+    throw new Error('EMAIL_USER must be a valid Gmail address.');
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+    throw new Error('EMAIL_FROM must contain a valid sender email address.');
+  }
+
+  return { port, emailUser, from };
+};
+
+export const initializeEmailService = async () => {
+  const { port, emailUser, from } = validateEmailConfig();
+  const secure = port === 465;
+  senderAddress = from;
+
+  console.log('[EMAIL] Provider: smtp');
+  console.log(`[EMAIL] Host: ${process.env.EMAIL_HOST.trim()}`);
+  console.log(`[EMAIL] Port: ${port}`);
+  console.log(`[EMAIL] User configured: ${Boolean(emailUser)}`);
+  console.log(`[EMAIL] Password configured: ${Boolean(process.env.EMAIL_PASS)}`);
+  console.log(`[EMAIL] From configured: ${Boolean(from)}`);
+
+  transporter = nodemailer.createTransport({
+    pool: true,
+    maxConnections: 2,
+    maxMessages: 100,
+    host: process.env.EMAIL_HOST.trim(),
+    port,
+    secure,
+    requireTLS: port === 587,
+    auth: {
+      user: emailUser,
+      pass: process.env.EMAIL_PASS.replace(/\s/g, ''),
+    },
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
+  });
+
+  try {
+    await transporter.verify();
+    console.log('[EMAIL] SMTP transporter verification: success');
+  } catch (error) {
+    console.error(`[EMAIL] SMTP transporter verification failed: ${describeSmtpError(error)}`);
+  }
 };
 
 export const sendEmail = async ({ email, subject, message, html }) => {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = parseSender(process.env.EMAIL_FROM?.trim() || DEFAULT_FROM);
-  if (!apiKey) throw new Error('RESEND_API_KEY is not configured.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '')) {
-    throw new Error('Email recipient address is invalid.');
+  if (!transporter || !senderAddress) {
+    throw new Error('Email service is not initialized.');
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
+  console.log(`[EMAIL] Sending email to: ${maskEmail(email)}`);
   try {
-    const response = await fetch(RESEND_API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to: [email],
-        subject,
-        text: message,
-        html,
-      }),
-      signal: controller.signal,
+    const info = await transporter.sendMail({
+      from: senderAddress,
+      to: email,
+      subject,
+      text: message,
+      ...(html ? { html } : {}),
     });
-
-    if (!response.ok) {
-      const details = (await response.text())
-        .slice(0, 500)
-        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]');
-      console.error(`[Email] Resend rejected email with HTTP ${response.status}: ${details}`);
-      throw new Error(`Resend request rejected (${response.status})`);
-    }
-
-    const result = await response.json();
-    console.log('[Email] Message accepted by Resend.');
-    return { success: true, id: result.id };
+    console.log('[EMAIL] Email sent successfully');
+    return { success: true, id: info.messageId };
   } catch (error) {
-    if (error.name === 'AbortError') {
-      console.error('[Email] Resend request timed out.');
-      throw new Error('Email provider request timed out.');
-    }
-    if (error.message.startsWith('Resend request rejected')) throw error;
-    console.error('[Email] Resend request failed:', error.message);
-    throw new Error('Email provider request failed.');
-  } finally {
-    clearTimeout(timeout);
+    console.error(`[EMAIL] SMTP send failed: ${describeSmtpError(error)}`);
+    throw new Error('Email delivery failed. Please try again later.');
   }
 };
