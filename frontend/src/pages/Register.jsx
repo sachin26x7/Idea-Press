@@ -21,7 +21,7 @@ export default function Register() {
     try {
       const { data } = await axios.post('/api/auth/register', { name, email, password });
       // Redirect to OTP verification with email state
-      navigate('/verify-otp', { state: { email, emailSent: data.emailSent } });
+      navigate('/verify-otp', { state: { email: data.email, emailSent: data.emailSent } });
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');
     } finally {

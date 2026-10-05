@@ -62,30 +62,48 @@ const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString()
 // @access  Public
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, password } = req.body || {};
+    const email = typeof req.body?.email === 'string'
+      ? req.body.email.trim().toLowerCase()
+      : '';
 
-    const userExists = await User.findOne({ email });
+    if (typeof name !== 'string' || !name.trim() || !email || typeof password !== 'string') {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
 
-    if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    let user = await User.findOne({ email });
+
+    if (user?.isVerified) {
+      return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
     }
 
     const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // 🔐 SECURITY: Check if user email matches ADMIN_EMAIL from environment
-    // Only users with specific email can be admin
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const role = adminEmail && email.toLowerCase() === adminEmail.toLowerCase() ? 'admin' : 'user';
+    if (user) {
+      user.name = name.trim();
+      user.password = password;
+      user.otp = otp;
+      user.otpExpiry = otpExpiry;
+      await user.save();
+    } else {
+      // Only the configured admin email can register with the admin role.
+      const adminEmail = process.env.ADMIN_EMAIL;
+      const role = adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user';
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      otp,
-      otpExpiry,
-      role
-    });
+      user = await User.create({
+        name: name.trim(),
+        email,
+        password,
+        otp,
+        otpExpiry,
+        role
+      });
+    }
 
     if (user) {
       // Send OTP via email
@@ -115,6 +133,9 @@ export const registerUser = async (req, res) => {
     }
   } catch (error) {
     console.error('Register error:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
+    }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -355,4 +376,3 @@ export const resetPassword = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
