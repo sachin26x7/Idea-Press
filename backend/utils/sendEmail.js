@@ -1,55 +1,40 @@
-const RESEND_API_URL = 'https://api.resend.com/emails';
-const EMAIL_TIMEOUT_MS = 8000;
-const FALLBACK_FROM = 'IdeaPress <onboarding@resend.dev>';
+import nodemailer from 'nodemailer';
 
-const resolveFromAddress = () => {
-  const configured = process.env.EMAIL_FROM?.trim();
-  if (!configured) return FALLBACK_FROM;
-  if (/your-verified-domain\.com|example\.com/i.test(configured)) return FALLBACK_FROM;
-  return configured;
-};
+const SMTP_TIMEOUT_MS = 10000;
 
 export const sendEmail = async (options) => {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = resolveFromAddress();
+  const host = process.env.SMTP_HOST?.trim();
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS;
 
-  if (!apiKey) {
-    throw new Error('Email delivery is not configured. Set RESEND_API_KEY.');
+  if (!host || !Number.isInteger(port) || !user || !pass) {
+    throw new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS.');
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+    connectionTimeout: SMTP_TIMEOUT_MS,
+    greetingTimeout: SMTP_TIMEOUT_MS,
+    socketTimeout: SMTP_TIMEOUT_MS,
+  });
 
   try {
-    const response = await fetch(RESEND_API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to: [options.email],
-        subject: options.subject,
-        text: options.message,
-        html: options.html,
-      }),
-      signal: controller.signal,
+    const info = await transporter.sendMail({
+      from: user,
+      to: options.email,
+      subject: options.subject,
+      text: options.message,
+      ...(options.html ? { html: options.html } : {}),
     });
 
-    if (!response.ok) {
-      const details = (await response.text()).slice(0, 400);
-      throw new Error(`Email provider rejected the request (HTTP ${response.status}): ${details}`);
-    }
-
-    const result = await response.json();
-    console.log('Email accepted by provider:', result.id);
+    console.log('Email accepted by SMTP server:', info.messageId);
   } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error(`Email provider timed out after ${EMAIL_TIMEOUT_MS / 1000} seconds`);
-    }
-    throw error;
+    throw new Error(`SMTP email delivery failed: ${error.message}`);
   } finally {
-    clearTimeout(timeout);
+    transporter.close();
   }
 };
