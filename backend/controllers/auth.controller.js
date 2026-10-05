@@ -1,4 +1,6 @@
 import User from '../models/User.js';
+import PendingRegistration from '../models/PendingRegistration.js';
+import bcrypt from 'bcrypt';
 import { generateTokens } from '../utils/generateTokens.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import fs from 'node:fs/promises';
@@ -81,54 +83,58 @@ export const registerUser = async (req, res) => {
       return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
     }
 
+    let pendingRegistration = await PendingRegistration.findOne({ email });
     const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    if (user) {
-      user.name = name.trim();
-      user.password = password;
-      user.otp = otp;
-      user.otpExpiry = otpExpiry;
-      await user.save();
-    } else {
-      // Only the configured admin email can register with the admin role.
-      const adminEmail = process.env.ADMIN_EMAIL;
-      const role = adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user';
-
-      user = await User.create({
-        name: name.trim(),
+    const message = `Your OTP for Upskill verification is: ${otp}\nThis OTP is valid for 10 minutes.`;
+    try {
+      await sendEmail({
         email,
-        password,
-        otp,
-        otpExpiry,
-        role
+        subject: 'Upskill - Account Verification OTP',
+        message,
+      });
+    } catch (error) {
+      console.error('Registration OTP email failed:', error.message);
+      if (user?.isVerified === false) {
+        try {
+          await User.deleteOne({ _id: user._id, isVerified: false });
+        } catch (cleanupError) {
+          console.error('Could not remove unverified registration:', cleanupError.message);
+          return res.status(500).json({
+            message: 'Verification email failed and the pending account could not be removed. Please contact support.',
+          });
+        }
+      }
+      return res.status(503).json({
+        message: 'Verification email could not be sent, so no account was created. Please try again later.',
       });
     }
+
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const role = user?.role || (adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user');
+    pendingRegistration = pendingRegistration || new PendingRegistration({ email });
+    pendingRegistration.name = name.trim();
+    pendingRegistration.passwordHash = await bcrypt.hash(password, 10);
+    pendingRegistration.role = role;
+    pendingRegistration.otp = otp;
+    pendingRegistration.otpExpiry = otpExpiry;
+    pendingRegistration.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await pendingRegistration.save();
 
     if (user) {
-      const message = `Your OTP for Upskill verification is: ${otp}\nThis OTP is valid for 10 minutes.`;
-
-      try {
-        await sendEmail({
-          email: user.email,
-          subject: 'Upskill - Account Verification OTP',
-          message,
-        });
-      } catch (error) {
-        console.error('Registration OTP email failed:', error.message);
-        return res.status(503).json({
-          message: 'Your account was created, but the verification email could not be sent. Please try registering again shortly.',
-        });
+      const deletion = await User.deleteOne({ _id: user._id, isVerified: false });
+      if (!deletion.deletedCount) {
+        await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+        return res.status(409).json({ message: 'This email has already been verified. Please sign in.' });
       }
-
-      res.status(201).json({
-        message: 'Registration successful. Please verify your email with the OTP sent.',
-        email: user.email,
-        emailSent: true
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
     }
+
+    res.status(201).json({
+      message: 'Verification email sent. Enter the OTP to create and activate your account.',
+      email,
+      emailSent: true
+    });
   } catch (error) {
     console.error('Register error:', error);
     if (error.code === 11000) {
@@ -143,16 +149,68 @@ export const registerUser = async (req, res) => {
 // @access  Public
 export const verifyOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const otp = typeof req.body?.otp === 'string' ? req.body.otp.trim() : '';
 
     if (!email || !otp) {
       return res.status(400).json({ message: 'Email and OTP are required' });
     }
 
+    const pendingRegistration = await PendingRegistration.findOne({ email });
+    if (pendingRegistration) {
+      if (pendingRegistration.otp !== otp) {
+        return res.status(400).json({ message: 'Invalid OTP' });
+      }
+
+      if (new Date() > pendingRegistration.otpExpiry) {
+        return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+      }
+
+      let user = await User.findOne({ email: pendingRegistration.email });
+      if (user?.isVerified) {
+        return res.status(400).json({ message: 'User is already verified' });
+      }
+
+      if (user) {
+        user.name = pendingRegistration.name;
+        user.password = pendingRegistration.passwordHash;
+        user.role = pendingRegistration.role;
+        user.isVerified = true;
+        user.otp = undefined;
+        user.otpExpiry = undefined;
+      } else {
+        user = new User({
+          name: pendingRegistration.name,
+          email: pendingRegistration.email,
+          password: pendingRegistration.passwordHash,
+          role: pendingRegistration.role,
+          isVerified: true,
+        });
+      }
+      user.$locals.passwordIsHashed = true;
+      await user.save();
+      await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
+
+      const { accessToken, refreshToken } = generateTokens(user._id);
+      return res.status(200).json({
+        message: 'Email verified successfully',
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        interests: user.interests,
+        interestsCompleted: user.interestsCompleted,
+        accessToken,
+        refreshToken
+      });
+    }
+
+    // Accept registrations created by older deployments during the transition.
     const user = await User.findOne({ email });
 
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'Registration not found. Please register again.' });
     }
 
     if (user.isVerified) {
@@ -197,30 +255,36 @@ export const verifyOtp = async (req, res) => {
 // @access  Public
 export const resendOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!email) return res.status(400).json({ message: 'Email is required' });
 
-    const user = await User.findOne({ email });
+    const pendingRegistration = await PendingRegistration.findOne({ email });
+    const user = pendingRegistration ? null : await User.findOne({ email });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (!pendingRegistration && !user) {
+      return res.status(404).json({ message: 'Registration not found. Please register again.' });
     }
 
-    if (user.isVerified) {
+    if (user?.isVerified) {
       return res.status(400).json({ message: 'User is already verified' });
     }
 
     const otp = generateOTP();
-    user.otp = otp;
-    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
-
     const message = `Your new OTP for Upskill verification is: ${otp}\nThis OTP is valid for 10 minutes.`;
 
     await sendEmail({
-      email: user.email,
+      email,
       subject: 'Upskill - New Verification OTP',
       message,
     });
+
+    const registration = pendingRegistration || user;
+    registration.otp = otp;
+    registration.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    if (pendingRegistration) {
+      pendingRegistration.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    await registration.save();
 
     res.status(200).json({ message: 'New OTP sent successfully' });
   } catch (error) {
