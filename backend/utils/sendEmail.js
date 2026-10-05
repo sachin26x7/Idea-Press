@@ -1,12 +1,20 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
 const EMAIL_TIMEOUT_MS = 8000;
+const FALLBACK_FROM = 'IdeaPress <onboarding@resend.dev>';
+
+const resolveFromAddress = () => {
+  const configured = process.env.EMAIL_FROM?.trim();
+  if (!configured) return FALLBACK_FROM;
+  if (/your-verified-domain\.com|example\.com/i.test(configured)) return FALLBACK_FROM;
+  return configured;
+};
 
 export const sendEmail = async (options) => {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  const from = resolveFromAddress();
 
-  if (!apiKey || !from) {
-    throw new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM.');
+  if (!apiKey) {
+    throw new Error('Email delivery is not configured. Set RESEND_API_KEY.');
   }
 
   const controller = new AbortController();
