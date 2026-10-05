@@ -1,15 +1,16 @@
 import nodemailer from 'nodemailer';
 
-const SMTP_TIMEOUT_MS = 10000;
+const SMTP_CONNECTION_TIMEOUT_MS = 6000;
+const SMTP_SOCKET_TIMEOUT_MS = 10000;
 
 export const sendEmail = async (options) => {
-  const host = process.env.SMTP_HOST?.trim();
-  const port = Number(process.env.SMTP_PORT || 587);
+  const host = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com';
+  const port = Number(process.env.SMTP_PORT || 465);
   const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS;
+  const pass = process.env.SMTP_PASS?.replace(/\s/g, '');
 
-  if (!host || !Number.isInteger(port) || !user || !pass) {
-    throw new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS.');
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || !user || !pass) {
+    throw new Error('Gmail SMTP is not configured. Set SMTP_USER and SMTP_PASS to a Gmail address and its Google App Password.');
   }
 
   const transporter = nodemailer.createTransport({
@@ -17,9 +18,9 @@ export const sendEmail = async (options) => {
     port,
     secure: port === 465,
     auth: { user, pass },
-    connectionTimeout: SMTP_TIMEOUT_MS,
-    greetingTimeout: SMTP_TIMEOUT_MS,
-    socketTimeout: SMTP_TIMEOUT_MS,
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
   });
 
   try {
@@ -31,9 +32,14 @@ export const sendEmail = async (options) => {
       ...(options.html ? { html: options.html } : {}),
     });
 
-    console.log('Email accepted by SMTP server:', info.messageId);
+    console.log('Email accepted by Gmail SMTP:', info.messageId);
   } catch (error) {
-    throw new Error(`SMTP email delivery failed: ${error.message}`);
+    if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKET') {
+      throw new Error(
+        `Gmail SMTP connection timed out on port ${port}. The hosting provider may block outbound SMTP; use a host that permits Gmail SMTP or enable SMTP egress.`
+      );
+    }
+    throw new Error(`Gmail SMTP delivery failed: ${error.message}`);
   } finally {
     transporter.close();
   }
