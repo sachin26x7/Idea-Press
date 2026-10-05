@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -31,12 +32,20 @@ const profileUpload = multer({
 
 const router = express.Router();
 
-router.post('/register', registerUser);
-router.post('/verify-otp', verifyOtp);
-router.post('/resend-otp', resendOtp);
+const authEmailLimiter = (limit, message) => rateLimit({
+	windowMs: 15 * 60 * 1000,
+	limit,
+	standardHeaders: true,
+	legacyHeaders: false,
+	message: { message },
+});
+
+router.post('/register', authEmailLimiter(5, 'Too many registration attempts. Please try again later.'), registerUser);
+router.post('/verify-otp', authEmailLimiter(10, 'Too many code attempts. Please try again later.'), verifyOtp);
+router.post('/resend-otp', authEmailLimiter(3, 'Too many code requests. Please try again later.'), resendOtp);
 router.post('/login', loginUser);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', authEmailLimiter(3, 'Too many password reset requests. Please try again later.'), forgotPassword);
+router.post('/reset-password', authEmailLimiter(10, 'Too many password reset attempts. Please try again later.'), resetPassword);
 router.put('/profile', protect, profileUpload.single('avatar'), updateProfile);
 
 export default router;

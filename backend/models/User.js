@@ -36,9 +36,23 @@ const userSchema = new mongoose.Schema(
 
     otp: {
       type: String,
+      select: false,
+    },
+
+    otpHash: {
+      type: String,
     },
 
     otpExpiry: {
+      type: Date,
+    },
+
+    otpAttempts: {
+      type: Number,
+      default: 0,
+    },
+
+    otpLastSentAt: {
       type: Date,
     },
 
@@ -92,6 +106,20 @@ const userSchema = new mongoose.Schema(
 
     resetPasswordToken: {
       type: String,
+      select: false,
+    },
+
+    resetPasswordTokenHash: {
+      type: String,
+    },
+
+    resetPasswordAttempts: {
+      type: Number,
+      default: 0,
+    },
+
+    resetPasswordLastSentAt: {
+      type: Date,
     },
 
     resetPasswordExpiry: {
@@ -123,9 +151,15 @@ userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
   delete obj.otp;
+  delete obj.otpHash;
   delete obj.otpExpiry;
+  delete obj.otpAttempts;
+  delete obj.otpLastSentAt;
   delete obj.resetPasswordToken;
+  delete obj.resetPasswordTokenHash;
   delete obj.resetPasswordExpiry;
+  delete obj.resetPasswordAttempts;
+  delete obj.resetPasswordLastSentAt;
   return obj;
 };
 

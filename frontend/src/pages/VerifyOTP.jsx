@@ -49,6 +49,7 @@ export default function VerifyOTP() {
 
 
   const handleResendOtp = async () => {
+    if (resending) return;
     setResending(true);
     setError('');
     setSuccess('');

@@ -25,11 +25,21 @@ const pendingRegistrationSchema = new mongoose.Schema(
     },
     otp: {
       type: String,
-      required: true,
+      select: false,
+    },
+    otpHash: {
+      type: String,
     },
     otpExpiry: {
       type: Date,
       required: true,
+    },
+    otpAttempts: {
+      type: Number,
+      default: 0,
+    },
+    otpLastSentAt: {
+      type: Date,
     },
     expiresAt: {
       type: Date,

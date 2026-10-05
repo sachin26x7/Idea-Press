@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connectDB } from './config/db.js';
+import { validateEmailConfig } from './utils/sendEmail.js';
 import authRoutes from './routes/auth.routes.js';
 import blogRoutes from './routes/blog.routes.js';
 import commentRoutes from './routes/comment.routes.js';
@@ -13,6 +14,7 @@ import adminRoutes from './routes/admin.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 
 dotenv.config();
+validateEmailConfig();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +23,7 @@ const __dirname = path.dirname(__filename);
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Security Middleware
 app.use(helmet({
