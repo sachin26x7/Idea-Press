@@ -155,8 +155,8 @@ export const verifyOtp = async (req, res) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const otp = typeof req.body?.otp === 'string' ? req.body.otp.trim() : '';
 
-    if (!email || !otp) {
-      return res.status(400).json({ message: 'Email and OTP are required' });
+    if (!email || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: 'Email and a valid 6-digit OTP are required' });
     }
 
     const pendingRegistration = await PendingRegistration.findOne({ email }).select('+otp');
@@ -165,14 +165,19 @@ export const verifyOtp = async (req, res) => {
         return res.status(429).json({ message: 'Too many incorrect codes. Request a new verification email.' });
       }
 
+      const otpExpiry = new Date(pendingRegistration.otpExpiry).getTime();
+      if (!Number.isFinite(otpExpiry) || Date.now() >= otpExpiry) {
+        return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+      }
+
+      if (!pendingRegistration.otpHash && !pendingRegistration.otp) {
+        return res.status(400).json({ message: 'No active OTP found. Please request a new verification email.' });
+      }
+
       if (!matchesOTP(otp, pendingRegistration.otpHash, pendingRegistration.otp)) {
         pendingRegistration.otpAttempts += 1;
         await pendingRegistration.save();
         return res.status(400).json({ message: 'Invalid OTP' });
-      }
-
-      if (new Date() > pendingRegistration.otpExpiry) {
-        return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
       }
 
       let user = await User.findOne({ email: pendingRegistration.email });
@@ -231,14 +236,19 @@ export const verifyOtp = async (req, res) => {
       return res.status(429).json({ message: 'Too many incorrect codes. Request a new verification email.' });
     }
 
+    const otpExpiry = new Date(user.otpExpiry).getTime();
+    if (!Number.isFinite(otpExpiry) || Date.now() >= otpExpiry) {
+      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+    }
+
+    if (!user.otpHash && !user.otp) {
+      return res.status(400).json({ message: 'No active OTP found. Please request a new verification email.' });
+    }
+
     if (!matchesOTP(otp, user.otpHash, user.otp)) {
       user.otpAttempts += 1;
       await user.save();
       return res.status(400).json({ message: 'Invalid OTP' });
-    }
-
-    if (new Date() > new Date(user.otpExpiry)) {
-      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
     }
 
     user.isVerified = true;
