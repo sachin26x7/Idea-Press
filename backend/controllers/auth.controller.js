@@ -1,6 +1,5 @@
 import User from '../models/User.js';
 import PendingRegistration from '../models/PendingRegistration.js';
-import bcrypt from 'bcrypt';
 import { createOtpEmail, generateOTP, hashOTP, matchesOTP } from '../utils/otp.js';
 import { generateTokens } from '../utils/generateTokens.js';
 import { sendEmail } from '../utils/sendEmail.js';
@@ -84,70 +83,50 @@ export const registerUser = async (req, res) => {
       return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
     }
 
-    let pendingRegistration = await PendingRegistration.findOne({ email });
-    const lastOtpSentAt = pendingRegistration?.otpLastSentAt || user?.otpLastSentAt;
-    const remainingCooldown = lastOtpSentAt
-      ? OTP_RESEND_COOLDOWN_MS - (Date.now() - lastOtpSentAt.getTime())
-      : 0;
-    if (remainingCooldown > 0) {
-      res.set('Retry-After', String(Math.ceil(remainingCooldown / 1000)));
-      return res.status(429).json({ message: 'Please wait before requesting another verification code.' });
-    }
-
-    const otp = generateOTP();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    const emailContent = createOtpEmail({ purpose: 'account verification', otp, minutesValid: 10 });
-    try {
-      await sendEmail({
-        email,
-        subject: 'Verify your IdeaPress account',
-        message: emailContent.text,
-        html: emailContent.html,
-      });
-    } catch (error) {
-      console.error('Registration OTP email failed:', error.message);
-      if (user && !user.isVerified) {
-        try {
-          await User.deleteOne({ _id: user._id, isVerified: false });
-        } catch (cleanupError) {
-          console.error(
-            'Could not remove legacy unverified account:',
-            cleanupError instanceof Error ? cleanupError.message : 'Unknown error'
-          );
-        }
-      }
-      return res.status(503).json({
-        message: 'Verification email could not be sent. Please try again later.',
-      });
-    }
-
     const adminEmail = process.env.ADMIN_EMAIL;
     const role = user?.role || (adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user');
-    pendingRegistration = pendingRegistration || new PendingRegistration({ email });
-    pendingRegistration.name = name.trim();
-    pendingRegistration.passwordHash = await bcrypt.hash(password, 10);
-    pendingRegistration.role = role;
-    pendingRegistration.otpHash = hashOTP(otp);
-    pendingRegistration.otp = undefined;
-    pendingRegistration.otpExpiry = otpExpiry;
-    pendingRegistration.otpAttempts = 0;
-    pendingRegistration.otpLastSentAt = new Date();
-    pendingRegistration.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await pendingRegistration.save();
-
     if (user) {
-      const deletion = await User.deleteOne({ _id: user._id, isVerified: false });
-      if (!deletion.deletedCount) {
-        await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
-        return res.status(409).json({ message: 'This email has already been verified. Please sign in.' });
-      }
+      user.name = name.trim();
+      user.password = password;
+      user.isVerified = true;
+      user.otp = undefined;
+      user.otpHash = undefined;
+      user.otpExpiry = undefined;
+      user.otpAttempts = 0;
+      user.otpLastSentAt = undefined;
+    } else {
+      user = new User({
+        name: name.trim(),
+        email,
+        password,
+        role,
+        isVerified: true,
+      });
     }
 
+    await user.save();
+    try {
+      await PendingRegistration.deleteOne({ email });
+    } catch (cleanupError) {
+      console.error(
+        'Could not remove legacy pending registration:',
+        cleanupError instanceof Error ? cleanupError.message : 'Unknown error'
+      );
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
     res.status(201).json({
-      message: 'Verification email sent. Enter the OTP to create and activate your account.',
-      email,
-      emailSent: true
+      message: 'Account created successfully.',
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      avatar: user.avatar,
+      interests: user.interests,
+      interestsCompleted: user.interestsCompleted,
+      isVerified: user.isVerified,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
     console.error('Register error:', error instanceof Error ? error.message : 'Unknown error');
@@ -351,10 +330,6 @@ export const loginUser = async (req, res) => {
     // Check if user is blocked
     if (user.isBlocked) {
       return res.status(403).json({ message: 'Your account has been blocked by the administrator. Please contact support.' });
-    }
-
-    if (!user.isVerified) {
-      return res.status(401).json({ message: 'Please verify your email first. Request a new OTP if needed.' });
     }
 
     if (await user.matchPassword(password)) {

@@ -89,7 +89,7 @@ export const initializeEmailService = async () => {
 
 export const sendEmail = async ({ email, subject, message, html }) => {
   if (!transporter || !senderAddress) {
-    throw new Error('Email service is not initialized.');
+    await initializeEmailService();
   }
 
   console.log(`[EMAIL] Sending email to: ${maskEmail(email)}`);
