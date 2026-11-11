@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { Eye, EyeOff, Loader2, LockKeyhole, Mail, UserRound } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
 
 export default function Register() {
   const [name, setName]         = useState('');
@@ -12,6 +13,7 @@ export default function Register() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
 
+  const { login } = useContext(AuthContext);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -20,6 +22,11 @@ export default function Register() {
     setError('');
     try {
       const { data } = await axios.post('/api/auth/register', { name, email, password });
+      if (data.accessToken) {
+        login(data);
+        navigate('/interests', { replace: true });
+        return;
+      }
       navigate('/verify-otp', { state: { email: data.email, emailSent: data.emailSent } });
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');

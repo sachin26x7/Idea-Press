@@ -9,6 +9,10 @@ import path from 'node:path';
 
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const PASSWORD_RESET_COOLDOWN_MS = 60 * 1000;
+const isEmailVerificationDisabled = () => (
+  process.env.NODE_ENV === 'development'
+  && process.env.DISABLE_EMAIL_VERIFICATION === 'true'
+);
 
 const removeUploadedAvatar = async (avatar) => {
   if (!avatar || !avatar.startsWith('/uploads/profiles/')) return;
@@ -84,6 +88,37 @@ export const registerUser = async (req, res) => {
       return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
     }
 
+    if (isEmailVerificationDisabled()) {
+      const adminEmail = process.env.ADMIN_EMAIL;
+      user = user || new User({ email });
+      user.name = name.trim();
+      user.password = password;
+      user.role = user.role || (adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user');
+      user.isVerified = true;
+      user.otp = undefined;
+      user.otpHash = undefined;
+      user.otpExpiry = undefined;
+      user.otpAttempts = 0;
+      user.otpLastSentAt = undefined;
+
+      await PendingRegistration.deleteOne({ email });
+      await user.save();
+
+      const { accessToken, refreshToken } = generateTokens(user._id);
+      return res.status(201).json({
+        message: 'Account created successfully',
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        interests: user.interests,
+        interestsCompleted: user.interestsCompleted,
+        accessToken,
+        refreshToken,
+      });
+    }
+
     let pendingRegistration = await PendingRegistration.findOne({ email });
     const lastOtpSentAt = pendingRegistration?.otpLastSentAt || user?.otpLastSentAt;
     const remainingCooldown = lastOtpSentAt
@@ -152,6 +187,10 @@ export const registerUser = async (req, res) => {
 // @access  Public
 export const verifyOtp = async (req, res) => {
   try {
+    if (isEmailVerificationDisabled()) {
+      return res.status(410).json({ message: 'Email verification is disabled in development.' });
+    }
+
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const otp = typeof req.body?.otp === 'string' ? req.body.otp.trim() : '';
 
@@ -282,6 +321,10 @@ export const verifyOtp = async (req, res) => {
 // @access  Public
 export const resendOtp = async (req, res) => {
   try {
+    if (isEmailVerificationDisabled()) {
+      return res.status(410).json({ message: 'Email verification is disabled in development.' });
+    }
+
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
@@ -352,11 +395,16 @@ export const loginUser = async (req, res) => {
       return res.status(403).json({ message: 'Your account has been blocked by the administrator. Please contact support.' });
     }
 
-    if (!user.isVerified) {
+    if (!user.isVerified && !isEmailVerificationDisabled()) {
       return res.status(401).json({ message: 'Please verify your email first. Request a new OTP if needed.' });
     }
 
     if (await user.matchPassword(password)) {
+      if (!user.isVerified) {
+        user.isVerified = true;
+        await user.save();
+      }
+
       const { accessToken, refreshToken } = generateTokens(user._id);
 
       res.json({

@@ -62,7 +62,12 @@ function AppLayout() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/interests" element={<ProtectedRoute><Interests /></ProtectedRoute>} />
-          <Route path="/verify-otp" element={<VerifyOTP />} />
+          <Route
+            path="/verify-otp"
+            element={import.meta.env.DEV && import.meta.env.VITE_DISABLE_EMAIL_VERIFICATION === 'true'
+              ? <Navigate to="/register" replace />
+              : <VerifyOTP />}
+          />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/profile/:id" element={<ProtectedRoute><PublicProfile /></ProtectedRoute>} />
