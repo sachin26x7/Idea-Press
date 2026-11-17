@@ -29,33 +29,6 @@ const userSchema = new mongoose.Schema(
       default: 'user',
     },
 
-    isVerified: {
-      type: Boolean,
-      default: false,
-    },
-
-    otp: {
-      type: String,
-      select: false,
-    },
-
-    otpHash: {
-      type: String,
-    },
-
-    otpExpiry: {
-      type: Date,
-    },
-
-    otpAttempts: {
-      type: Number,
-      default: 0,
-    },
-
-    otpLastSentAt: {
-      type: Date,
-    },
-
     avatar: {
       type: String,
       default: '',
@@ -150,11 +123,6 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
-  delete obj.otp;
-  delete obj.otpHash;
-  delete obj.otpExpiry;
-  delete obj.otpAttempts;
-  delete obj.otpLastSentAt;
   delete obj.resetPasswordToken;
   delete obj.resetPasswordTokenHash;
   delete obj.resetPasswordExpiry;

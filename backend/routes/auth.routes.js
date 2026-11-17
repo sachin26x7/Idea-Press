@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { registerUser, verifyOtp, loginUser, resendOtp, forgotPassword, resetPassword, updateProfile } from '../controllers/auth.controller.js';
+import { registerUser, loginUser, forgotPassword, resetPassword, updateProfile } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,8 +41,6 @@ const authEmailLimiter = (limit, message) => rateLimit({
 });
 
 router.post('/register', authEmailLimiter(5, 'Too many registration attempts. Please try again later.'), registerUser);
-router.post('/verify-otp', authEmailLimiter(10, 'Too many code attempts. Please try again later.'), verifyOtp);
-router.post('/resend-otp', authEmailLimiter(3, 'Too many code requests. Please try again later.'), resendOtp);
 router.post('/login', loginUser);
 router.post('/forgot-password', authEmailLimiter(3, 'Too many password reset requests. Please try again later.'), forgotPassword);
 router.post('/reset-password', authEmailLimiter(10, 'Too many password reset attempts. Please try again later.'), resetPassword);

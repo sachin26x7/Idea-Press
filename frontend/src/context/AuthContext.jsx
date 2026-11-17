@@ -29,7 +29,6 @@ export const AuthProvider = ({ children }) => {
       website: userData.website || '',
       interests: userData.interests || [],
       interestsCompleted: userData.interestsCompleted || false,
-      isVerified: userData.isVerified,
     };
     
     setUser(userToStore);

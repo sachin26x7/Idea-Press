@@ -1,18 +1,11 @@
 import User from '../models/User.js';
-import PendingRegistration from '../models/PendingRegistration.js';
-import bcrypt from 'bcrypt';
 import { createOtpEmail, generateOTP, hashOTP, matchesOTP } from '../utils/otp.js';
 import { generateTokens } from '../utils/generateTokens.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const PASSWORD_RESET_COOLDOWN_MS = 60 * 1000;
-const isEmailVerificationDisabled = () => (
-  process.env.NODE_ENV === 'development'
-  && process.env.DISABLE_EMAIL_VERIFICATION === 'true'
-);
 
 const removeUploadedAvatar = async (avatar) => {
   if (!avatar || !avatar.startsWith('/uploads/profiles/')) return;
@@ -82,224 +75,23 @@ export const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    let user = await User.findOne({ email });
-
-    if (user?.isVerified) {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
-    }
-
-    if (isEmailVerificationDisabled()) {
-      const adminEmail = process.env.ADMIN_EMAIL;
-      user = user || new User({ email });
-      user.name = name.trim();
-      user.password = password;
-      user.role = user.role || (adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user');
-      user.isVerified = true;
-      user.otp = undefined;
-      user.otpHash = undefined;
-      user.otpExpiry = undefined;
-      user.otpAttempts = 0;
-      user.otpLastSentAt = undefined;
-
-      await PendingRegistration.deleteOne({ email });
-      await user.save();
-
-      const { accessToken, refreshToken } = generateTokens(user._id);
-      return res.status(201).json({
-        message: 'Account created successfully',
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        interests: user.interests,
-        interestsCompleted: user.interestsCompleted,
-        accessToken,
-        refreshToken,
-      });
-    }
-
-    let pendingRegistration = await PendingRegistration.findOne({ email });
-    const lastOtpSentAt = pendingRegistration?.otpLastSentAt || user?.otpLastSentAt;
-    const remainingCooldown = lastOtpSentAt
-      ? OTP_RESEND_COOLDOWN_MS - (Date.now() - lastOtpSentAt.getTime())
-      : 0;
-    if (remainingCooldown > 0) {
-      res.set('Retry-After', String(Math.ceil(remainingCooldown / 1000)));
-      return res.status(429).json({ message: 'Please wait before requesting another verification code.' });
-    }
-
-    const otp = generateOTP();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-    const emailContent = createOtpEmail({ purpose: 'account verification', otp, minutesValid: 10 });
-    try {
-      await sendEmail({
-        email,
-        subject: 'Verify your IdeaPress account',
-        message: emailContent.text,
-        html: emailContent.html,
-      });
-    } catch (error) {
-      console.error('Registration OTP email failed:', error.message);
-      return res.status(503).json({
-        message: 'Verification email could not be sent. Check the server email configuration and try again.',
-      });
     }
 
     const adminEmail = process.env.ADMIN_EMAIL;
-    const role = user?.role || (adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user');
-    pendingRegistration = pendingRegistration || new PendingRegistration({ email });
-    pendingRegistration.name = name.trim();
-    pendingRegistration.passwordHash = await bcrypt.hash(password, 10);
-    pendingRegistration.role = role;
-    pendingRegistration.otpHash = hashOTP(otp);
-    pendingRegistration.otp = undefined;
-    pendingRegistration.otpExpiry = otpExpiry;
-    pendingRegistration.otpAttempts = 0;
-    pendingRegistration.otpLastSentAt = new Date();
-    pendingRegistration.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await pendingRegistration.save();
-
-    if (user) {
-      const deletion = await User.deleteOne({ _id: user._id, isVerified: false });
-      if (!deletion.deletedCount) {
-        await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
-        return res.status(409).json({ message: 'This email has already been verified. Please sign in.' });
-      }
-    }
-
-    res.status(201).json({
-      message: 'Verification email sent. Enter the OTP to create and activate your account.',
+    const user = new User({
+      name: name.trim(),
       email,
-      emailSent: true,
+      password,
+      role: adminEmail && email === adminEmail.trim().toLowerCase() ? 'admin' : 'user',
     });
-  } catch (error) {
-    console.error('Register error:', error instanceof Error ? error.message : 'Unknown error');
-    if (error.code === 11000) {
-      return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
-    }
-    res.status(500).json({ message: 'Registration failed. Please try again later.' });
-  }
-};
-
-// @desc    Verify OTP and finalize registration
-// @route   POST /api/auth/verify-otp
-// @access  Public
-export const verifyOtp = async (req, res) => {
-  try {
-    if (isEmailVerificationDisabled()) {
-      return res.status(410).json({ message: 'Email verification is disabled in development.' });
-    }
-
-    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    const otp = typeof req.body?.otp === 'string' ? req.body.otp.trim() : '';
-
-    if (!email || !/^\d{6}$/.test(otp)) {
-      return res.status(400).json({ message: 'Email and a valid 6-digit OTP are required' });
-    }
-
-    const pendingRegistration = await PendingRegistration.findOne({ email }).select('+otp');
-    if (pendingRegistration) {
-      if (pendingRegistration.otpAttempts >= 5) {
-        return res.status(429).json({ message: 'Too many incorrect codes. Request a new verification email.' });
-      }
-
-      const otpExpiry = new Date(pendingRegistration.otpExpiry).getTime();
-      if (!Number.isFinite(otpExpiry) || Date.now() >= otpExpiry) {
-        return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
-      }
-
-      if (!pendingRegistration.otpHash && !pendingRegistration.otp) {
-        return res.status(400).json({ message: 'No active OTP found. Please request a new verification email.' });
-      }
-
-      if (!matchesOTP(otp, pendingRegistration.otpHash, pendingRegistration.otp)) {
-        pendingRegistration.otpAttempts += 1;
-        await pendingRegistration.save();
-        return res.status(400).json({ message: 'Invalid OTP' });
-      }
-
-      let user = await User.findOne({ email: pendingRegistration.email });
-      if (user?.isVerified) {
-        return res.status(400).json({ message: 'User is already verified' });
-      }
-
-      if (user) {
-        user.name = pendingRegistration.name;
-        user.password = pendingRegistration.passwordHash;
-        user.role = pendingRegistration.role;
-        user.isVerified = true;
-        user.otp = undefined;
-        user.otpHash = undefined;
-        user.otpExpiry = undefined;
-      } else {
-        user = new User({
-          name: pendingRegistration.name,
-          email: pendingRegistration.email,
-          password: pendingRegistration.passwordHash,
-          role: pendingRegistration.role,
-          isVerified: true,
-        });
-      }
-      user.$locals.passwordIsHashed = true;
-      await user.save();
-      await PendingRegistration.deleteOne({ _id: pendingRegistration._id });
-
-      const { accessToken, refreshToken } = generateTokens(user._id);
-      return res.status(200).json({
-        message: 'Email verified successfully',
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        interests: user.interests,
-        interestsCompleted: user.interestsCompleted,
-        accessToken,
-        refreshToken
-      });
-    }
-
-    // Accept registrations created by older deployments during the transition.
-    const user = await User.findOne({ email }).select('+otp');
-
-    if (!user) {
-      return res.status(404).json({ message: 'Registration not found. Please register again.' });
-    }
-
-    if (user.isVerified) {
-      return res.status(400).json({ message: 'User is already verified' });
-    }
-
-    if (user.otpAttempts >= 5) {
-      return res.status(429).json({ message: 'Too many incorrect codes. Request a new verification email.' });
-    }
-
-    const otpExpiry = new Date(user.otpExpiry).getTime();
-    if (!Number.isFinite(otpExpiry) || Date.now() >= otpExpiry) {
-      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
-    }
-
-    if (!user.otpHash && !user.otp) {
-      return res.status(400).json({ message: 'No active OTP found. Please request a new verification email.' });
-    }
-
-    if (!matchesOTP(otp, user.otpHash, user.otp)) {
-      user.otpAttempts += 1;
-      await user.save();
-      return res.status(400).json({ message: 'Invalid OTP' });
-    }
-
-    user.isVerified = true;
-    user.otp = undefined;
-    user.otpHash = undefined;
-    user.otpExpiry = undefined;
     await user.save();
 
     const { accessToken, refreshToken } = generateTokens(user._id);
-
-    res.status(200).json({
-      message: 'Email verified successfully',
+    res.status(201).json({
+      message: 'Account created successfully',
       _id: user._id,
       name: user.name,
       email: user.email,
@@ -308,72 +100,14 @@ export const verifyOtp = async (req, res) => {
       interests: user.interests,
       interestsCompleted: user.interestsCompleted,
       accessToken,
-      refreshToken
+      refreshToken,
     });
   } catch (error) {
-    console.error('Verify OTP error:', error instanceof Error ? error.message : 'Unknown error');
-    res.status(500).json({ message: 'Unable to verify code. Please try again later.' });
-  }
-};
-
-// @desc    Resend OTP
-// @route   POST /api/auth/resend-otp
-// @access  Public
-export const resendOtp = async (req, res) => {
-  try {
-    if (isEmailVerificationDisabled()) {
-      return res.status(410).json({ message: 'Email verification is disabled in development.' });
+    console.error('Register error:', error instanceof Error ? error.message : 'Unknown error');
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'An account with this email already exists. Please sign in.' });
     }
-
-    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    if (!email) return res.status(400).json({ message: 'Email is required' });
-
-    const pendingRegistration = await PendingRegistration.findOne({ email }).select('+otp');
-    const user = pendingRegistration ? null : await User.findOne({ email }).select('+otp');
-
-    if (!pendingRegistration && !user) {
-      return res.status(404).json({ message: 'Registration not found. Please register again.' });
-    }
-
-    if (user?.isVerified) {
-      return res.status(400).json({ message: 'User is already verified' });
-    }
-
-    const registration = pendingRegistration || user;
-    const remainingCooldown = registration.otpLastSentAt
-      ? OTP_RESEND_COOLDOWN_MS - (Date.now() - registration.otpLastSentAt.getTime())
-      : 0;
-    if (remainingCooldown > 0) {
-      res.set('Retry-After', String(Math.ceil(remainingCooldown / 1000)));
-      return res.status(429).json({ message: 'Please wait before requesting another verification code.' });
-    }
-
-    const otp = generateOTP();
-    const emailContent = createOtpEmail({ purpose: 'account verification', otp, minutesValid: 10 });
-    try {
-      await sendEmail({
-        email,
-        subject: 'Your new IdeaPress verification code',
-        message: emailContent.text,
-        html: emailContent.html,
-      });
-    } catch (error) {
-      console.error('Resend verification email failed:', error.message);
-      return res.status(503).json({ message: 'Unable to send verification email. Please try again later.' });
-    }
-
-    registration.otpHash = hashOTP(otp);
-    registration.otp = undefined;
-    registration.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-    registration.otpAttempts = 0;
-    registration.otpLastSentAt = new Date();
-    if (pendingRegistration) registration.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await registration.save();
-
-    res.status(200).json({ message: 'New OTP sent successfully' });
-  } catch (error) {
-    console.error('Resend OTP error:', error instanceof Error ? error.message : 'Unknown error');
-    res.status(500).json({ message: 'Unable to send verification email. Please try again later.' });
+    res.status(500).json({ message: 'Registration failed. Please try again later.' });
   }
 };
 
@@ -395,16 +129,7 @@ export const loginUser = async (req, res) => {
       return res.status(403).json({ message: 'Your account has been blocked by the administrator. Please contact support.' });
     }
 
-    if (!user.isVerified && !isEmailVerificationDisabled()) {
-      return res.status(401).json({ message: 'Please verify your email first. Request a new OTP if needed.' });
-    }
-
     if (await user.matchPassword(password)) {
-      if (!user.isVerified) {
-        user.isVerified = true;
-        await user.save();
-      }
-
       const { accessToken, refreshToken } = generateTokens(user._id);
 
       res.json({
